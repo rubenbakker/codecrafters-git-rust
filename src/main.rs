@@ -37,9 +37,9 @@ fn main() {
                     let mut file = File::open(file_path_str).unwrap();
                     let mut data = vec!();
                     file.read_to_end(&mut data).unwrap();
-                    let mut zlibDecoder = ZlibDecoder::new(&data[..]);
+                    let mut zlib_decoder = ZlibDecoder::new(&data[..]);
                     let mut result = String::new();
-                    zlibDecoder.read_to_string(&mut result).unwrap();
+                    zlib_decoder.read_to_string(&mut result).unwrap();
                     if result.starts_with("blob") {
                         let result_str = result.as_str();
                         let parts: Vec<&str> = result_str.split("\0").collect();
