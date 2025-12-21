@@ -1,13 +1,12 @@
+use flate2::read::ZlibDecoder;
 #[allow(unused_imports)]
 use std::env;
 #[allow(unused_imports)]
 use std::fs;
-use std::path;
-use std::string::String;
-use flate2::read::ZlibDecoder;
-use flate2::Compression;
 use std::fs::File;
 use std::io::Read;
+use std::path;
+use std::string::String;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
