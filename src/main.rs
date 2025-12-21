@@ -42,7 +42,8 @@ fn main() {
                     if result.starts_with("blob") {
                         let result_str = result.as_str();
                         let parts: Vec<&str> = result_str.split("\0").collect();
-                        print!("{}", parts[1]);
+                        let content = result.get(parts[0].len()..).unwrap();
+                        print!("{}", content);
                     }
                 }
             }
