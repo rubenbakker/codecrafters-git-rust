@@ -46,13 +46,15 @@ fn main() -> anyhow::Result<()> {
                 let mut file = File::open(path.as_str())?;
                 let mut content: Vec<u8> = vec![];
                 file.read_to_end(&mut content)?;
-                let hash = Sha1::digest(&content);
+                let mut e = ZlibEncoder::new(Vec::new(), Compression::default());
+                let mut full_content : Vec<u8> = vec![];
+                let header = format!("blob {}\0", content.len()).as_bytes().to_vec().clone();
+                full_content.write_all(header.as_slice())?;
+                full_content.write_all(content.as_slice())?;
+                let hash = Sha1::digest(&full_content);
                 let hash = base16ct::lower::encode_string(&hash);
                 print!("{}", hash);
-                let mut e = ZlibEncoder::new(Vec::new(), Compression::default());
-                let header = format!("blob {}\0", content.len());
-                e.write_all(header.as_bytes())?;
-                (e).write_all(content.as_ref())?;
+                (e).write_all(full_content.as_ref())?;
                 let compressed = e.finish()?;
                 let dir_path = get_dir_for_hash(hash.as_str())?;
                 if !dir_path.exists() {
