@@ -35,8 +35,11 @@ fn main() -> anyhow::Result<()> {
                 hash_object(path)?
             }
         } else if args[1] == "ls-tree" {
+            if (args.len() > 2) {
+                let name_only = args[2] == "--name-only";
                 let hash = args.last().unwrap().to_string();
-                ls_tree(hash)?;
+                ls_tree(hash, name_only)?;
+            }
         } else {
             println!("unknown command: {}", args[1]);
         }
@@ -46,13 +49,16 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn ls_tree(hash: String) -> anyhow::Result<()> {
+fn ls_tree(hash: String, name_only: bool) -> anyhow::Result<()> {
     let file_path = get_path_for_hash(hash.as_str())?;
     eprintln!("file_path: {}", file_path.to_str().unwrap());
     if let GitObject::Tree(tree) = GitObject::from_file_path(&file_path)? {
-        eprintln!("entries!");
         for entry in tree.entries {
-            println!("{}", entry.name)
+            if name_only {
+                println!("{}", entry.name)
+            } else {
+                println!("{} {} {}")
+            }
         }
     } else {
         eprintln!("not a tree object");

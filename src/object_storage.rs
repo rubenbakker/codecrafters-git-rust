@@ -93,14 +93,11 @@ impl Tree {
                 if size == 0 {
                     break;
                 }
-                eprintln!("before permission {}", permission_buf.len());
                 let permission = String::from_utf8(permission_buf)?;
-                eprintln!("permission: {} {}", permission, permission.len());
                 let mut name_buf: Vec<u8> = vec![];
                 let _ = reader.read_until(null_byte, &mut name_buf)?;
                 let name = String::from_utf8(name_buf)?;
                 let name = name.get(0..name.len()-1).unwrap();
-                eprintln!("name: {}", name);
                 let mut hash_bytes_buf = vec![0; 20];
                 let permission = match permission.as_str().trim() {
                     "100644" => TreeEntryPermission::RegularFile,
