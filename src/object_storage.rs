@@ -65,11 +65,6 @@ impl GitObject {
 
 impl Blob {
     fn from(content: &[u8]) -> anyhow::Result<Self> {
-        let null_byte: u8 = 0;
-        let mut reader = content.reader();
-        (reader).skip_until(null_byte)?;
-        let mut content: Vec<u8> = vec![];
-        let _ = reader.read_to_end(&mut content)?;
         eprintln!("length: {}", content.len());
         Ok(Self {
             content: Vec::from(content),
