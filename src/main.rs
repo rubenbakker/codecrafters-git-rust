@@ -48,10 +48,14 @@ fn main() -> anyhow::Result<()> {
 
 fn ls_tree(hash: String) -> anyhow::Result<()> {
     let file_path = get_path_for_hash(hash.as_str())?;
+    eprintln!("file_path: {}", file_path.to_str().unwrap());
     if let GitObject::Tree(tree) = GitObject::from_file_path(&file_path)? {
+        eprintln!("entries!");
         for entry in tree.entries {
             println!("{}", entry.name)
         }
+    } else {
+        eprintln!("not a tree object");
     }
     Ok(())
 }

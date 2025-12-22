@@ -45,15 +45,20 @@ impl GitObject {
         let mut zlib_decoder = ZlibDecoder::new(&data[..]);
         let mut result: Vec<u8> = vec![];
         zlib_decoder.read_to_end(&mut result)?;
-        let mut header_string = String::new();
-        let _ = result.reader().read_to_string(&mut header_string)?;
-        let content = result.as_ref();
-        if header_string.starts_with("blob") {
-            Ok(GitObject::Blob(Blob::from(content)?))
-        } else if header_string.starts_with("tree") {
-            Ok(GitObject::Tree(Tree::from(content)?))
+        let mut type_prefix_buf: Vec<u8> = vec![0; 4];
+        let mut reader = result.reader();
+        reader.read_exact(&mut type_prefix_buf)?;
+        let type_prefix = String::from_utf8(type_prefix_buf)?;
+        let mut content: Vec<u8> = vec![];
+        let null_byte : u8 = 0;
+        let _ = (reader).skip_until(null_byte);
+        let _ = reader.read_to_end(&mut content)?;
+        if type_prefix == "blob" {
+            Ok(GitObject::Blob(Blob::from(&content)?))
+        } else if type_prefix == "tree" {
+            Ok(GitObject::Tree(Tree::from(&content)?))
         } else {
-            Err(anyhow!("Only blob and tree objects are supported."))
+            Err(anyhow!("Only blob and tree objects are supported ({})", type_prefix))
         }
     }
 }
@@ -92,24 +97,27 @@ impl Tree {
                 if size == 0 {
                     break;
                 }
+                eprintln!("before permission {}", permission_buf.len());
                 let permission = String::from_utf8(permission_buf)?;
+                eprintln!("permission: {} {}", permission, permission.len());
                 let mut name_buf: Vec<u8> = vec![];
                 let _ = reader.read_until(null_byte, &mut name_buf)?;
                 let name = String::from_utf8(name_buf)?;
-                let mut hash_bytes_buf = vec![20];
-                let permission = match permission.as_str() {
+                eprintln!("name: {}", name);
+                let mut hash_bytes_buf = vec![0; 20];
+                let permission = match permission.as_str().trim() {
                     "100644" => TreeEntryPermission::RegularFile,
-                    "040000" => TreeEntryPermission::Directory,
+                    "40000" => TreeEntryPermission::Directory,
                     "100755" => TreeEntryPermission::Executable,
                     "120000" => TreeEntryPermission::SymbolicLink,
                     &_ => Err(anyhow!("Unsupported permission value {}", permission.as_str()))?
                 };
-                let hash_bytes = (reader).read_exact(&mut hash_bytes_buf)?;
+                let _ = (reader).read_exact(&mut hash_bytes_buf)?;
                 entries.push(TreeEntry {
                     permission,
                     name,
                     hash: hash_bytes_buf
-                })
+                });
             } else {
                 break;
             }
