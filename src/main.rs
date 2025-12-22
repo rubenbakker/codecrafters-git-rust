@@ -1,8 +1,9 @@
 mod object_storage;
 
+use crate::object_storage::GitObject;
 use anyhow::anyhow;
-use flate2::write::ZlibEncoder;
 use flate2::Compression;
+use flate2::write::ZlibEncoder;
 use sha1::{Digest, Sha1};
 #[allow(unused_imports)]
 use std::env;
@@ -13,7 +14,6 @@ use std::io::{Read, Write};
 use std::path;
 use std::path::PathBuf;
 use std::string::String;
-use crate::object_storage::GitObject;
 
 fn main() -> anyhow::Result<()> {
     let args: Vec<String> = env::args().collect();
@@ -35,10 +35,8 @@ fn main() -> anyhow::Result<()> {
                 hash_object(path)?
             }
         } else if args[1] == "ls-tree" {
-            if args.len() > 2 {
-                let hash = args[3].to_string();
+                let hash = args.last().unwrap().to_string();
                 ls_tree(hash)?;
-            }
         } else {
             println!("unknown command: {}", args[1]);
         }
@@ -51,13 +49,11 @@ fn main() -> anyhow::Result<()> {
 fn ls_tree(hash: String) -> anyhow::Result<()> {
     let file_path = get_path_for_hash(hash.as_str())?;
     if let GitObject::Tree(tree) = GitObject::from_file_path(&file_path)? {
-        let entries = tree.entries;
-        for entry in entries {
+        for entry in tree.entries {
             println!("{}", entry.name)
         }
     }
     Ok(())
-
 }
 
 fn cat_file(hash: String) -> anyhow::Result<()> {
@@ -74,7 +70,10 @@ fn hash_object(path: String) -> anyhow::Result<()> {
     file.read_to_end(&mut content)?;
     let mut e = ZlibEncoder::new(Vec::new(), Compression::default());
     let mut full_content: Vec<u8> = vec![];
-    let header = format!("blob {}\0", content.len()).as_bytes().to_vec().clone();
+    let header = format!("blob {}\0", content.len())
+        .as_bytes()
+        .to_vec()
+        .clone();
     full_content.write_all(header.as_slice())?;
     full_content.write_all(content.as_slice())?;
     let hash = Sha1::digest(&full_content);
