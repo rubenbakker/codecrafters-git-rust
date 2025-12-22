@@ -115,7 +115,7 @@ impl Tree {
                 let _ = (reader).read_exact(&mut hash_bytes_buf)?;
                 entries.push(TreeEntry {
                     permission,
-                    name,
+                    name: String::from(name.trim()),
                     hash: hash_bytes_buf
                 });
             } else {
