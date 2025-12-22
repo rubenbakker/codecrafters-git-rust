@@ -36,7 +36,7 @@ fn main() -> anyhow::Result<()> {
                 if result.starts_with("blob") {
                     let result_str = result.as_str();
                     let parts: Vec<&str> = result_str.split("\0").collect();
-                    let content = result.get(parts[0].len()..).unwrap();
+                    let content = result.get(parts[0].len() + 1..).unwrap();
                     print!("{}", content);
                 }
             }
@@ -53,8 +53,7 @@ fn main() -> anyhow::Result<()> {
                 full_content.write_all(content.as_slice())?;
                 let hash = Sha1::digest(&full_content);
                 let hash = base16ct::lower::encode_string(&hash);
-                print!("{}", hash);
-                (e).write_all(full_content.as_ref())?;
+                e.write_all(full_content.as_ref())?;
                 let compressed = e.finish()?;
                 let dir_path = get_dir_for_hash(hash.as_str())?;
                 if !dir_path.exists() {
@@ -62,7 +61,8 @@ fn main() -> anyhow::Result<()> {
                 }
                 let output_file_path = get_path_for_hash(hash.as_str())?;
                 let mut output_file = File::create(output_file_path)?;
-                (output_file).write_all(compressed.as_ref())?;
+                output_file.write_all(compressed.as_ref())?;
+                print!("{}", hash);
             }
         } else {
             println!("unknown command: {}", args[1]);
