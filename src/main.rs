@@ -1,17 +1,10 @@
 mod object_storage;
 
-use crate::object_storage::GitObject;
-use anyhow::anyhow;
-use flate2::Compression;
-use flate2::write::ZlibEncoder;
-use sha1::{Digest, Sha1};
+use crate::object_storage::{Blob, GitObject, ObjectStorage};
 #[allow(unused_imports)]
 use std::env;
 #[allow(unused_imports)]
 use std::fs;
-use std::fs::File;
-use std::io::{Read, Write};
-use std::path;
 use std::path::PathBuf;
 use std::string::String;
 
@@ -35,7 +28,7 @@ fn main() -> anyhow::Result<()> {
                 hash_object(path)?
             }
         } else if args[1] == "ls-tree" {
-            if (args.len() > 2) {
+            if args.len() > 2 {
                 let name_only = args[2] == "--name-only";
                 let hash = args.last().unwrap().to_string();
                 ls_tree(hash, name_only)?;
@@ -50,14 +43,14 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn ls_tree(hash: String, name_only: bool) -> anyhow::Result<()> {
-    let file_path = get_path_for_hash(hash.as_str())?;
+    let file_path = ObjectStorage::get_path_for_hash(hash.as_str())?;
     eprintln!("file_path: {}", file_path.to_str().unwrap());
     if let GitObject::Tree(tree) = GitObject::from_file_path(&file_path)? {
         for entry in tree.entries {
             if name_only {
                 println!("{}", entry.name)
             } else {
-                println!("{} {} {}")
+                println!("{} {} {}", entry.permission.to_string(), entry.name, entry.to_hash_hex_string())
             }
         }
     } else {
@@ -67,48 +60,19 @@ fn ls_tree(hash: String, name_only: bool) -> anyhow::Result<()> {
 }
 
 fn cat_file(hash: String) -> anyhow::Result<()> {
-    let file_path = get_path_for_hash(hash.as_str())?;
+    let file_path = ObjectStorage::get_path_for_hash(hash.as_str())?;
     if let GitObject::Blob(blob) = GitObject::from_file_path(&file_path)? {
         print!("{}", &blob.as_str()?)
     }
     Ok(())
 }
 
+
 fn hash_object(path: String) -> anyhow::Result<()> {
-    let mut file = File::open(path.as_str())?;
-    let mut content: Vec<u8> = vec![];
-    file.read_to_end(&mut content)?;
-    let mut e = ZlibEncoder::new(Vec::new(), Compression::default());
-    let mut full_content: Vec<u8> = vec![];
-    let header = format!("blob {}\0", content.len())
-        .as_bytes()
-        .to_vec()
-        .clone();
-    full_content.write_all(header.as_slice())?;
-    full_content.write_all(content.as_slice())?;
-    let hash = Sha1::digest(&full_content);
-    let hash = base16ct::lower::encode_string(&hash);
-    e.write_all(full_content.as_ref())?;
-    let compressed = e.finish()?;
-    let dir_path = get_dir_for_hash(hash.as_str())?;
-    if !dir_path.exists() {
-        let _result = fs::create_dir(dir_path)?;
-    }
-    let output_file_path = get_path_for_hash(hash.as_str())?;
-    let mut output_file = File::create(output_file_path)?;
-    output_file.write_all(compressed.as_ref())?;
-    print!("{}", hash);
+    let path = PathBuf::from(path);
+    let blob = Blob::new_with_file_path(&path)?;
+    let hash = blob.write_to_oject_storage()?;
+    println!("{}", hash);
     Ok(())
 }
 
-fn get_dir_for_hash(hash: &str) -> anyhow::Result<PathBuf> {
-    let dir = hash.get(0..2).ok_or(anyhow!("invalid hex"))?;
-    let dir_path = path::Path::new(".git").join("objects").join(dir);
-    Ok(dir_path)
-}
-
-fn get_path_for_hash(hash: &str) -> anyhow::Result<PathBuf> {
-    let filename = hash.get(2..).ok_or(anyhow!("invalid hex"))?;
-    let file_path = get_dir_for_hash(hash)?.join(filename);
-    Ok(file_path)
-}
