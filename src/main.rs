@@ -12,11 +12,7 @@ fn main() -> anyhow::Result<()> {
     let args: Vec<String> = env::args().collect();
     if args.len() > 1 {
         if args[1] == "init" {
-            fs::create_dir(".git")?;
-            fs::create_dir(".git/objects")?;
-            fs::create_dir(".git/refs")?;
-            fs::write(".git/HEAD", "ref: refs/heads/main\n")?;
-            println!("Initialized git directory");
+            init_cwd()?;
         } else if args[1] == "cat-file" {
             if args.len() > 3 && args[2] == "-p" {
                 let hash = args[3].to_string();
@@ -73,6 +69,12 @@ fn hash_object(path: String) -> anyhow::Result<()> {
     let blob = Blob::new_with_file_path(&path)?;
     let hash = blob.write_to_oject_storage()?;
     println!("{}", hash);
+    Ok(())
+}
+
+fn init_cwd() -> anyhow::Result<()> {
+    ObjectStorage::init_cwd()?;
+    println!("Initialized git directory");
     Ok(())
 }
 

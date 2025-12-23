@@ -174,6 +174,13 @@ impl TreeEntry {
 }
 
 impl ObjectStorage {
+    pub fn init_cwd() -> anyhow::Result<()> {
+        fs::create_dir(".git")?;
+        fs::create_dir(".git/objects")?;
+        fs::create_dir(".git/refs")?;
+        fs::write(".git/HEAD", "ref: refs/heads/main\n")?;
+        Ok(())
+    }
     pub fn get_dir_for_hash(hash: &str) -> anyhow::Result<PathBuf> {
         let dir = hash.get(0..2).ok_or(anyhow!("invalid hex"))?;
         let dir_path = path::Path::new(".git").join("objects").join(dir);
