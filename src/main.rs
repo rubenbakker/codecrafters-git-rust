@@ -29,6 +29,8 @@ fn main() -> anyhow::Result<()> {
                 let hash = args.last().unwrap().to_string();
                 ls_tree(hash, name_only)?;
             }
+        } else if args[1] == "write-tree" {
+            write_tree()?;
         } else {
             println!("unknown command: {}", args[1]);
         }
@@ -46,12 +48,24 @@ fn ls_tree(hash: String, name_only: bool) -> anyhow::Result<()> {
             if name_only {
                 println!("{}", entry.name)
             } else {
-                println!("{} {} {}", entry.permission.to_string(), entry.name, entry.to_hash_hex_string())
+                println!(
+                    "{} {} {}",
+                    entry.permission.to_string(),
+                    entry.name,
+                    entry.to_hash_hex_string()
+                )
             }
         }
     } else {
         eprintln!("not a tree object");
     }
+    Ok(())
+}
+
+fn write_tree() -> anyhow::Result<()> {
+    let hash = ObjectStorage::write_tree_cwd()?;
+    let hash_string = base16ct::lower::encode_string(&hash);
+    println!("{}", &hash_string);
     Ok(())
 }
 
@@ -63,12 +77,12 @@ fn cat_file(hash: String) -> anyhow::Result<()> {
     Ok(())
 }
 
-
 fn hash_object(path: String) -> anyhow::Result<()> {
     let path = PathBuf::from(path);
     let blob = Blob::new_with_file_path(&path)?;
-    let hash = blob.write_to_oject_storage()?;
-    println!("{}", hash);
+    let hash = blob.write_to_object_storage()?;
+    let hash_string = base16ct::lower::encode_string(&hash);
+    println!("{}", hash_string);
     Ok(())
 }
 
@@ -77,4 +91,3 @@ fn init_cwd() -> anyhow::Result<()> {
     println!("Initialized git directory");
     Ok(())
 }
-

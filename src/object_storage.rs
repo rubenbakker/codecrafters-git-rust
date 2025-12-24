@@ -1,5 +1,5 @@
 use anyhow::anyhow;
-use bytes::Buf;
+use bytes::{Buf, BufMut};
 use flate2::Compression;
 use flate2::read::ZlibDecoder;
 use flate2::write::ZlibEncoder;
@@ -35,6 +35,9 @@ pub struct TreeEntry {
 
 pub struct Tree {
     pub entries: Vec<TreeEntry>,
+}
+
+impl Tree {
 }
 
 impl GitObject {
@@ -89,31 +92,37 @@ impl Blob {
         Ok(String::from_utf8(v)?)
     }
 
-    pub fn write_to_oject_storage(self: &Self) -> anyhow::Result<String> {
-        let mut e = ZlibEncoder::new(Vec::new(), Compression::default());
+    pub fn write_to_object_storage(self: &Self) -> anyhow::Result<Vec<u8>> {
         let mut full_content: Vec<u8> = vec![];
-        let header = format!("blob {}\0", self.content.len())
-            .as_bytes()
-            .to_vec()
-            .clone();
+        let header = ObjectStorage::header_for_content_length("blob", self.content.len())?;
         full_content.write_all(header.as_slice())?;
         full_content.write_all(self.content.as_slice())?;
-        let hash = Sha1::digest(&full_content);
-        let hash = base16ct::lower::encode_string(&hash);
-        e.write_all(full_content.as_ref())?;
-        let compressed = e.finish()?;
-        let dir_path = ObjectStorage::get_dir_for_hash(hash.as_str())?;
-        if !dir_path.exists() {
-            let _result = fs::create_dir(dir_path)?;
-        }
-        let output_file_path = ObjectStorage::get_path_for_hash(hash.as_str())?;
-        let mut output_file = File::create(output_file_path)?;
-        output_file.write_all(compressed.as_ref())?;
+        let hash = ObjectStorage::write_object(&full_content)?;
         Ok(hash)
     }
 }
 
 impl Tree {
+
+    fn write_to_object_storage(self: &Self) -> anyhow::Result<Vec<u8>> {
+        let content: Vec<u8> = vec![];
+        let mut content_writer = content.writer();
+        for entry in &self.entries {
+            content_writer.write(entry.permission.to_string().as_bytes())?;
+            content_writer.write(b" ")?;
+            content_writer.write(entry.name.as_bytes())?;
+            content_writer.write(b"\0")?;
+            content_writer.write(&entry.hash)?;
+        }
+        let content = content_writer.get_ref();
+        let header = ObjectStorage::header_for_content_length("tree", content.len())?;
+        let mut full_content: Vec<u8> = vec![];
+        full_content.write_all(header.as_slice())?;
+        full_content.write_all(content)?;
+        let hash = ObjectStorage::write_object(&full_content)?;
+        Ok(hash)
+    }
+
     fn from(content: &[u8]) -> anyhow::Result<Self> {
         let mut reader = content.reader();
         let null_byte: u8 = 0;
@@ -191,6 +200,56 @@ impl ObjectStorage {
         let filename = hash.get(2..).ok_or(anyhow!("invalid hex"))?;
         let file_path = Self::get_dir_for_hash(hash)?.join(filename);
         Ok(file_path)
+    }
+
+    pub fn write_object(content: &[u8]) -> anyhow::Result<Vec<u8>> {
+        let hash = Sha1::digest(&content).to_vec();
+        let hash_string = base16ct::lower::encode_string(&hash);
+        let mut e = ZlibEncoder::new(Vec::new(), Compression::default());
+        e.write_all(content.as_ref())?;
+        let compressed = e.finish()?;
+        let dir_path = ObjectStorage::get_dir_for_hash(hash_string.as_str())?;
+        if !dir_path.exists() {
+            let _result = fs::create_dir(dir_path)?;
+        }
+        let output_file_path = ObjectStorage::get_path_for_hash(hash_string.as_str())?;
+        let mut output_file = File::create(output_file_path)?;
+        output_file.write_all(compressed.as_ref())?;
+        Ok(hash)
+    }
+
+    pub fn header_for_content_length(header_type: &str, length: usize) -> anyhow::Result<Vec<u8>> {
+        Ok(format!("{} {}\0", header_type, length)
+            .as_bytes()
+            .to_vec()
+            .clone())
+    }
+
+    pub fn write_tree_cwd() -> anyhow::Result<Vec<u8>> {
+        Self::write_tree(&PathBuf::from("."))
+    }
+
+    pub fn write_tree(path: &PathBuf) -> anyhow::Result<Vec<u8>> {
+        let dir = fs::read_dir(&path)?;
+        let mut tree_entries: Vec<TreeEntry> = vec![];
+        for entry in dir {
+            if let Ok(entry) = entry {
+                let file_name = entry.file_name().to_str().unwrap().to_string();
+                let file_type = entry.file_type()?;
+                if file_type.is_dir() {
+                    let hash = Self::write_tree(&entry.path())?;
+                    tree_entries.push(TreeEntry { permission: TreeEntryPermission::Directory, name: file_name, hash });
+                } else {
+                    let blob = Blob::new_with_file_path(&entry.path())?;
+                    let hash = blob.write_to_object_storage()?;
+                    (tree_entries).push(TreeEntry { permission: TreeEntryPermission::RegularFile, name: file_name, hash });
+                }
+            }
+        }
+        tree_entries.sort_by(|a, b| a.name.cmp(&b.name));
+        // TDO
+        let tree = Tree { entries: tree_entries};
+        tree.write_to_object_storage()
     }
 
 }
