@@ -230,7 +230,7 @@ impl ObjectStorage {
     }
 
     pub fn write_tree(path: &PathBuf) -> anyhow::Result<Vec<u8>> {
-        let dir = fs::read_dir(&path)?.;
+        let dir = fs::read_dir(&path)?;
         let mut tree_entries: Vec<TreeEntry> = vec![];
         for entry in dir {
             if let Ok(entry) = entry {
