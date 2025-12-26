@@ -8,35 +8,22 @@ use std::fs::File;
 use std::io::{BufRead, Read, Write};
 use std::path::PathBuf;
 use std::{fs, path};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 pub enum GitObject {
     Blob(Blob),
     Tree(Tree),
-    //Commit(Commit),
+    Commit(Commit),
 }
 
 pub struct Blob {
     content: Vec<u8>,
 }
 
-pub type SHA = [u8; 20];
-
-pub struct CommitAuthor {
-    name: String,
-    email: String,
-}
-
-pub struct CommitTimestamp {
-    seconds: u64,
-    timezone: i8,
-}
+pub type Sha = [u8; 20];
 
 pub struct Commit {
-    tree: SHA,
-    parents: Vec<SHA>,
-    author: CommitAuthor,
-    author_timestamp: CommitTimestamp,
+    tree: Sha,
+    parents: Vec<Sha>,
     message: String,
 }
 
@@ -52,14 +39,12 @@ pub enum TreeEntryPermission {
 pub struct TreeEntry {
     pub permission: TreeEntryPermission,
     pub name: String,
-    pub hash: SHA,
+    pub hash: Sha,
 }
 
 pub struct Tree {
     pub entries: Vec<TreeEntry>,
 }
-
-impl Tree {}
 
 impl GitObject {
     pub fn from_file_path(path: &PathBuf) -> anyhow::Result<Self> {
@@ -70,7 +55,7 @@ impl GitObject {
     }
 
     pub fn from_data(data: &[u8]) -> anyhow::Result<Self> {
-        let mut zlib_decoder = ZlibDecoder::new(&data[..]);
+        let mut zlib_decoder = ZlibDecoder::new(data);
         let mut result: Vec<u8> = vec![];
         zlib_decoder.read_to_end(&mut result)?;
         let mut type_prefix_buf: Vec<u8> = vec![0; 4];
@@ -78,13 +63,14 @@ impl GitObject {
         reader.read_exact(&mut type_prefix_buf)?;
         let type_prefix = String::from_utf8(type_prefix_buf)?;
         let mut content: Vec<u8> = vec![];
-        let null_byte: u8 = 0;
-        let _ = (reader).skip_until(null_byte);
+        let _ = (reader).skip_until(0);
         let _ = reader.read_to_end(&mut content)?;
         if type_prefix == "blob" {
             Ok(GitObject::Blob(Blob::from(&content)?))
         } else if type_prefix == "tree" {
             Ok(GitObject::Tree(Tree::from(&content)?))
+        } else if type_prefix == "comm" {
+            Ok(GitObject::Commit(Commit::from(&content)?))
         } else {
             Err(anyhow!(
                 "Only blob and tree objects are supported ({})",
@@ -108,12 +94,12 @@ impl Blob {
         })
     }
 
-    pub fn as_str(self: &Self) -> anyhow::Result<String> {
+    pub fn as_str(&self) -> anyhow::Result<String> {
         let v = self.content.to_vec();
         Ok(String::from_utf8(v)?)
     }
 
-    pub fn write_to_object_storage(self: &Self) -> anyhow::Result<SHA> {
+    pub fn write_to_object_storage(&self) -> anyhow::Result<Sha> {
         let mut full_content: Vec<u8> = vec![];
         let header = ObjectStorage::header_for_content_length("blob", self.content.len())?;
         full_content.write_all(header.as_slice())?;
@@ -123,15 +109,15 @@ impl Blob {
 }
 
 impl Tree {
-    fn write_to_object_storage(self: &Self) -> anyhow::Result<SHA> {
+    fn write_to_object_storage(&self) -> anyhow::Result<Sha> {
         let content: Vec<u8> = vec![];
         let mut content_writer = content.writer();
         for entry in &self.entries {
-            content_writer.write(entry.permission.to_string().as_bytes())?;
-            content_writer.write(b" ")?;
-            content_writer.write(entry.name.as_bytes())?;
-            content_writer.write(b"\0")?;
-            content_writer.write(&entry.hash)?;
+            _ = content_writer.write(entry.permission.to_string_repr().as_bytes())?;
+            _ = content_writer.write(b" ")?;
+            _ = content_writer.write(entry.name.as_bytes())?;
+            _ = content_writer.write(b"\0")?;
+            _ = content_writer.write(&entry.hash)?;
         }
         let content = content_writer.get_ref();
         let header = ObjectStorage::header_for_content_length("tree", content.len())?;
@@ -169,7 +155,7 @@ impl Tree {
                         permission.as_str()
                     ))?,
                 };
-                let _ = (reader).read_exact(&mut hash_bytes_buf)?;
+                (reader).read_exact(&mut hash_bytes_buf)?;
                 entries.push(TreeEntry {
                     permission,
                     name: String::from(name),
@@ -184,7 +170,7 @@ impl Tree {
 }
 
 impl TreeEntryPermission {
-    pub fn to_string(self: &Self) -> String {
+    pub fn to_string_repr(&self) -> String {
         match self {
             TreeEntryPermission::Directory => "40000",
             TreeEntryPermission::RegularFile => "100644",
@@ -196,13 +182,44 @@ impl TreeEntryPermission {
 }
 
 impl TreeEntry {
-    pub fn to_hash_hex_string(self: &Self) -> String {
+    pub fn to_hash_hex_string(&self) -> String {
         ObjectStorage::sha_to_hex_string(&self.hash)
     }
 }
 
 impl Commit {
-    fn write_to_object_storage(self: &Self) -> anyhow::Result<SHA> {
+    fn from(content: &[u8]) -> anyhow::Result<Self> {
+        let mut reader: bytes::buf::Reader<&[u8]> = content.reader();
+        let mut tree: Option<Sha> = None;
+        let mut parents: Vec<Sha> = vec![];
+        while let Some((prefix, payload)) = Self::read_commit_line(&mut reader)? {
+            match prefix.as_str() {
+                "tree" => tree = Some(ObjectStorage::hex_string_to_sha(&payload)?),
+                "parent" => parents.push(ObjectStorage::hex_string_to_sha(&payload)?),
+                "committer" => (),
+                "author" => (),
+                _ => (),
+            }
+        }
+        let mut message: Vec<u8> = vec![];
+        _ = reader.read_to_end(&mut message);
+        Ok(Commit {
+            tree: tree.unwrap(),
+            parents,
+            message: String::from_utf8(message)?,
+        })
+    }
+
+    fn read_commit_line(
+        reader: &mut bytes::buf::Reader<&[u8]>,
+    ) -> anyhow::Result<Option<(String, String)>> {
+        let mut line = String::new();
+        _ = reader.read_line(&mut line)?;
+        let split = line.split_once(" ");
+        Ok(split.map(|(prefix, payload)| (prefix.to_owned(), payload.trim().to_owned())))
+    }
+
+    fn write_to_object_storage(&self) -> anyhow::Result<Sha> {
         let content: Vec<u8> = vec![];
         let mut content_writer = content.writer();
         content_writer.write(b"tree ")?;
@@ -213,14 +230,15 @@ impl Commit {
             content_writer.write(ObjectStorage::sha_to_hex_string(parent).as_bytes())?;
             content_writer.write(b"\n")?;
         }
-        content_writer.write(b"author ")?;
-        content_writer.write(&self.author.name.as_bytes())?;
-        content_writer.write(b"<")?;
-        content_writer.write(&self.author.email.as_bytes())?;
-        content_writer.write(b">")?;
-        let author_line = format!("author {} <{}> {} +{:04}\n", &self.author.name, &self.author.email, &self.author_timestamp.seconds, &self.author_timestamp.timezone);
+        let author_line = format!(
+            "author {} <{}> {} +{:04}\n",
+            "Ruben Bakker", "ruben@uncomplex.ch", 0, 0
+        );
         content_writer.write(author_line.as_bytes())?;
-        let committer_line = format!("committer {} <{}> {} +{:04}\n", &self.author.name, &self.author.email, &self.author_timestamp.seconds, &self.author_timestamp.timezone);
+        let committer_line = format!(
+            "committer {} <{}> {} +{:04}\n",
+            "Ruben Bakker", "ruben@uncomplex.ch", 0, 0
+        );
         content_writer.write(committer_line.as_bytes())?;
         content_writer.write(b"\n")?;
         content_writer.write(&self.message.as_bytes())?;
@@ -255,8 +273,8 @@ impl ObjectStorage {
         Ok(file_path)
     }
 
-    pub fn write_object(content: &[u8]) -> anyhow::Result<SHA> {
-        let hash: SHA = Sha1::digest(&content).to_vec().try_into().unwrap();
+    pub fn write_object(content: &[u8]) -> anyhow::Result<Sha> {
+        let hash: Sha = Sha1::digest(&content).to_vec().try_into().unwrap();
         let hash_string = Self::sha_to_hex_string(&hash);
         let mut e = ZlibEncoder::new(Vec::new(), Compression::default());
         e.write_all(content.as_ref())?;
@@ -278,11 +296,11 @@ impl ObjectStorage {
             .clone())
     }
 
-    pub fn write_tree_cwd() -> anyhow::Result<SHA> {
+    pub fn write_tree_cwd() -> anyhow::Result<Sha> {
         Self::write_tree(&PathBuf::from("."))
     }
 
-    pub fn write_tree(path: &PathBuf) -> anyhow::Result<SHA> {
+    pub fn write_tree(path: &PathBuf) -> anyhow::Result<Sha> {
         let dir = fs::read_dir(&path)?;
         let mut tree_entries: Vec<TreeEntry> = vec![];
         for entry in dir {
@@ -319,37 +337,73 @@ impl ObjectStorage {
     }
 
     pub(crate) fn commit_tree(
-        tree_sha: &SHA,
-        parent_sha: &SHA,
+        tree_sha: &Sha,
+        parent_sha: &Sha,
         message: &str,
-    ) -> anyhow::Result<SHA> {
-        let mut parents: Vec<SHA> = vec![];
-        parents.push(parent_sha.clone());
-        let seconds_since_epoch = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
+    ) -> anyhow::Result<Sha> {
+        let parents: Vec<Sha> = vec![parent_sha.to_owned()];
         let commit = Commit {
-            tree: tree_sha.clone(),
+            tree: tree_sha.to_owned(),
             parents,
             message: String::from(message),
-            author: CommitAuthor {
-                name: String::from("Ruben Bakker"),
-                email: String::from("ruben@uncomplex.ch"),
-            },
-            author_timestamp: CommitTimestamp {
-                timezone: 0,
-                seconds: seconds_since_epoch
-            }
         };
         commit.write_to_object_storage()
-
     }
 
-    pub fn sha_to_hex_string(sha: &SHA) -> String {
+    pub fn sha_to_hex_string(sha: &Sha) -> String {
         base16ct::lower::encode_string(sha)
     }
 
-    pub fn hex_string_to_sha(hex_str: &str) -> anyhow::Result<SHA> {
+    pub fn hex_string_to_sha(hex_str: &str) -> anyhow::Result<Sha> {
         let mut sha = [0u8; 20];
         base16ct::mixed::decode(hex_str, &mut sha)?;
         Ok(sha)
+    }
+
+    pub fn checkout_sha(path: &PathBuf, sha: &Sha) -> anyhow::Result<()> {
+        let object = ObjectStorage::git_object_from_sha(sha)?;
+        match object {
+            GitObject::Tree(tree) => {
+                for entry in &tree.entries {
+                    match entry.permission {
+                        TreeEntryPermission::Directory => {
+                            let mut dir = path.clone();
+                            dir.push(&entry.name);
+                            std::fs::create_dir(&dir)?;
+                            Self::checkout_sha(&dir, &entry.hash)?;
+                        }
+                        TreeEntryPermission::RegularFile => {
+                            let mut filepath = path.clone();
+                            filepath.push(&entry.name);
+                            Self::checkout_sha(&filepath, &entry.hash)?;
+                        }
+                        TreeEntryPermission::SymbolicLink => todo!(),
+                        TreeEntryPermission::Executable => todo!(),
+                    }
+                }
+                Ok(())
+            }
+            GitObject::Blob(blob) => {
+                let mut file = File::create(path)?;
+                file.write_all(&blob.content)?;
+                Ok(())
+            }
+            GitObject::Commit(_) => Ok(()),
+        }
+    }
+
+    pub(crate) fn checkout(sha: &Sha) -> anyhow::Result<()> {
+        if let GitObject::Commit(commit) = Self::git_object_from_sha(sha)? {
+            let path = std::path::absolute(".")?;
+            ObjectStorage::checkout_sha(&path, &commit.tree)?;
+            Ok(())
+        } else {
+            Err(anyhow!("{:?} isn't a commit", sha))
+        }
+    }
+
+    fn git_object_from_sha(sha: &Sha) -> anyhow::Result<GitObject> {
+        let file_path = ObjectStorage::get_path_for_hash(&ObjectStorage::sha_to_hex_string(sha))?;
+        GitObject::from_file_path(&file_path)
     }
 }

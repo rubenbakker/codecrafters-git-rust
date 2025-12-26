@@ -40,6 +40,11 @@ fn main() -> anyhow::Result<()> {
                 let message = args[6].as_str();
                 commit_tree(tree_sha, parent, message)?;
             }
+        } else if args[1] == "checkout" {
+            if args.len() > 2 {
+                let sha = args[2].as_str();
+                checkout(sha)?;
+            }
         } else {
             println!("unknown command: {}", args[1]);
         }
@@ -51,7 +56,6 @@ fn main() -> anyhow::Result<()> {
 
 fn ls_tree(hash: &str, name_only: bool) -> anyhow::Result<()> {
     let file_path = ObjectStorage::get_path_for_hash(hash)?;
-    eprintln!("file_path: {}", file_path.to_str().unwrap());
     if let GitObject::Tree(tree) = GitObject::from_file_path(&file_path)? {
         for entry in tree.entries {
             if name_only {
@@ -59,7 +63,7 @@ fn ls_tree(hash: &str, name_only: bool) -> anyhow::Result<()> {
             } else {
                 println!(
                     "{} {} {}",
-                    entry.permission.to_string(),
+                    entry.permission.to_string_repr(),
                     entry.name,
                     entry.to_hash_hex_string()
                 )
@@ -80,7 +84,7 @@ fn write_tree_cwd() -> anyhow::Result<()> {
 
 fn commit_tree(tree_sha: &str, parent_sha: &str, commit: &str) -> anyhow::Result<()> {
     let tree_sha = ObjectStorage::hex_string_to_sha(tree_sha)?;
-    let parent_sha  = ObjectStorage::hex_string_to_sha(parent_sha)?;
+    let parent_sha = ObjectStorage::hex_string_to_sha(parent_sha)?;
     let sha = ObjectStorage::commit_tree(&tree_sha, &parent_sha, commit)?;
     println!("{}", ObjectStorage::sha_to_hex_string(&sha));
     Ok(())
@@ -105,5 +109,11 @@ fn hash_object(path: &str) -> anyhow::Result<()> {
 fn init_cwd() -> anyhow::Result<()> {
     ObjectStorage::init_cwd()?;
     println!("Initialized git directory");
+    Ok(())
+}
+
+fn checkout(sha: &str) -> anyhow::Result<()> {
+    let sha = ObjectStorage::hex_string_to_sha(sha)?;
+    ObjectStorage::checkout(&sha)?;
     Ok(())
 }
