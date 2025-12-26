@@ -30,7 +30,16 @@ fn main() -> anyhow::Result<()> {
                 ls_tree(hash, name_only)?;
             }
         } else if args[1] == "write-tree" {
-            write_tree()?;
+            write_tree_cwd()?;
+        } else if args[1] == "commit-tree" {
+            if args.len() > 6 {
+                let tree_sha = args[2].as_str();
+                // -p
+                let parent = args[4].as_str();
+                // -m
+                let message = args[6].as_str();
+                commit_tree(tree_sha, parent, message)?;
+            }
         } else {
             println!("unknown command: {}", args[1]);
         }
@@ -62,10 +71,18 @@ fn ls_tree(hash: String, name_only: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn write_tree() -> anyhow::Result<()> {
+fn write_tree_cwd() -> anyhow::Result<()> {
     let hash = ObjectStorage::write_tree_cwd()?;
-    let hash_string = base16ct::lower::encode_string(&hash);
+    let hash_string = ObjectStorage::sha_to_hex_string(&hash);
     println!("{}", &hash_string);
+    Ok(())
+}
+
+fn commit_tree(tree_sha: &str, parent_sha: &str, commit: &str) -> anyhow::Result<()> {
+    let tree_sha: &[u8; 20] = tree_sha.as_bytes().try_into()?;
+    let parent_sha: &[u8; 20] = parent_sha.as_bytes().try_into()?;
+    let sha = ObjectStorage::commit_tree(tree_sha, parent_sha, commit)?;
+    println!("{}", ObjectStorage::sha_to_hex_string(&sha));
     Ok(())
 }
 
@@ -80,9 +97,8 @@ fn cat_file(hash: String) -> anyhow::Result<()> {
 fn hash_object(path: String) -> anyhow::Result<()> {
     let path = PathBuf::from(path);
     let blob = Blob::new_with_file_path(&path)?;
-    let hash = blob.write_to_object_storage()?;
-    let hash_string = base16ct::lower::encode_string(&hash);
-    println!("{}", hash_string);
+    let sha = blob.write_to_object_storage()?;
+    println!("{}", ObjectStorage::sha_to_hex_string(&sha));
     Ok(())
 }
 
