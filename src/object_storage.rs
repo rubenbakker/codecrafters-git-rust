@@ -20,7 +20,7 @@ pub struct Blob {
     content: Vec<u8>,
 }
 
-type SHA = [u8; 20];
+pub type SHA = [u8; 20];
 
 pub struct CommitAuthor {
     name: String,
@@ -221,9 +221,10 @@ impl Commit {
         let author_line = format!("author {} <{}> {} +{:04}\n", &self.author.name, &self.author.email, &self.author_timestamp.seconds, &self.author_timestamp.timezone);
         content_writer.write(author_line.as_bytes())?;
         let committer_line = format!("committer {} <{}> {} +{:04}\n", &self.author.name, &self.author.email, &self.author_timestamp.seconds, &self.author_timestamp.timezone);
+        content_writer.write(committer_line.as_bytes())?;
         content_writer.write(b"\n")?;
         content_writer.write(&self.message.as_bytes())?;
-        content_writer.write(committer_line.as_bytes())?;
+        content_writer.write(b"\n")?;
         let content = content_writer.get_ref();
         let header = ObjectStorage::header_for_content_length("commit", content.len())?;
         let mut full_content: Vec<u8> = vec![];
@@ -344,5 +345,11 @@ impl ObjectStorage {
 
     pub fn sha_to_hex_string(sha: &SHA) -> String {
         base16ct::lower::encode_string(sha)
+    }
+
+    pub fn hex_string_to_sha(hex_str: &str) -> anyhow::Result<SHA> {
+        let mut sha = [0u8; 20];
+        base16ct::mixed::decode(hex_str, &mut sha)?;
+        Ok(sha)
     }
 }

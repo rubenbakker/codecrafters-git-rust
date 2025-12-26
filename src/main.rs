@@ -16,18 +16,18 @@ fn main() -> anyhow::Result<()> {
         } else if args[1] == "cat-file" {
             if args.len() > 3 && args[2] == "-p" {
                 let hash = args[3].to_string();
-                cat_file(hash)?;
+                cat_file(hash.as_str())?;
             }
         } else if args[1] == "hash-object" {
             if args.len() > 3 && args[2] == "-w" {
                 let path = args[3].to_string();
-                hash_object(path)?
+                hash_object(path.as_str())?
             }
         } else if args[1] == "ls-tree" {
             if args.len() > 2 {
                 let name_only = args[2] == "--name-only";
                 let hash = args.last().unwrap().to_string();
-                ls_tree(hash, name_only)?;
+                ls_tree(hash.as_str(), name_only)?;
             }
         } else if args[1] == "write-tree" {
             write_tree_cwd()?;
@@ -49,8 +49,8 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn ls_tree(hash: String, name_only: bool) -> anyhow::Result<()> {
-    let file_path = ObjectStorage::get_path_for_hash(hash.as_str())?;
+fn ls_tree(hash: &str, name_only: bool) -> anyhow::Result<()> {
+    let file_path = ObjectStorage::get_path_for_hash(hash)?;
     eprintln!("file_path: {}", file_path.to_str().unwrap());
     if let GitObject::Tree(tree) = GitObject::from_file_path(&file_path)? {
         for entry in tree.entries {
@@ -79,22 +79,22 @@ fn write_tree_cwd() -> anyhow::Result<()> {
 }
 
 fn commit_tree(tree_sha: &str, parent_sha: &str, commit: &str) -> anyhow::Result<()> {
-    let tree_sha: &[u8; 20] = tree_sha.as_bytes().try_into()?;
-    let parent_sha: &[u8; 20] = parent_sha.as_bytes().try_into()?;
-    let sha = ObjectStorage::commit_tree(tree_sha, parent_sha, commit)?;
+    let tree_sha = ObjectStorage::hex_string_to_sha(tree_sha)?;
+    let parent_sha  = ObjectStorage::hex_string_to_sha(parent_sha)?;
+    let sha = ObjectStorage::commit_tree(&tree_sha, &parent_sha, commit)?;
     println!("{}", ObjectStorage::sha_to_hex_string(&sha));
     Ok(())
 }
 
-fn cat_file(hash: String) -> anyhow::Result<()> {
-    let file_path = ObjectStorage::get_path_for_hash(hash.as_str())?;
+fn cat_file(hash: &str) -> anyhow::Result<()> {
+    let file_path = ObjectStorage::get_path_for_hash(hash)?;
     if let GitObject::Blob(blob) = GitObject::from_file_path(&file_path)? {
         print!("{}", &blob.as_str()?)
     }
     Ok(())
 }
 
-fn hash_object(path: String) -> anyhow::Result<()> {
+fn hash_object(path: &str) -> anyhow::Result<()> {
     let path = PathBuf::from(path);
     let blob = Blob::new_with_file_path(&path)?;
     let sha = blob.write_to_object_storage()?;
